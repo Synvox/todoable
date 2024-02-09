@@ -1,6 +1,6 @@
 import { randomBytes } from "crypto";
 import { sql } from "./sql";
-import type { DataFunctionArgs } from "./util";
+import { getContext, type DataFunctionArgs } from "../util";
 
 const sessionIdWeakMap = new WeakMap<DataFunctionArgs["request"], string>();
 const sessionResponseHeadersWeakMap = new Map<
@@ -8,10 +8,8 @@ const sessionResponseHeadersWeakMap = new Map<
   Headers
 >();
 
-function setResponseHeaders(
-  req: DataFunctionArgs["request"],
-  headers: Headers
-) {
+function setResponseHeaders(headers: Headers) {
+  const req = getContext().request;
   if (sessionResponseHeadersWeakMap.has(req)) {
     for (const [k, v] of sessionResponseHeadersWeakMap.get(req)!)
       headers.set(k, v);
@@ -20,13 +18,13 @@ function setResponseHeaders(
   }
 }
 
-export function getSessionResponseHeaders(req: DataFunctionArgs["request"]) {
+export function getSessionResponseHeaders() {
+  const req = getContext().request;
   return sessionResponseHeadersWeakMap.get(req) ?? new Headers();
 }
 
-export function cookies(
-  req: DataFunctionArgs["request"]
-): Record<string, string> {
+export function cookies(): Record<string, string> {
+  const req = getContext().request;
   const cookieStr = req.headers.get("cookie") || "";
   if (!cookieStr) return {};
   return cookieStr
@@ -38,22 +36,22 @@ export function cookies(
     }, {});
 }
 
-function getSessionId(req: DataFunctionArgs["request"]) {
+function getSessionId() {
+  const req = getContext().request;
   if (sessionIdWeakMap.has(req)) return sessionIdWeakMap.get(req)!;
-  const reqCookies = cookies(req);
+  const reqCookies = cookies();
   const id = reqCookies.session || randomBytes(32).toString("hex");
   sessionIdWeakMap.set(req, id);
   if (!reqCookies.session) {
     setResponseHeaders(
-      req,
       new Headers({ "Set-Cookie": `session=${id}; HttpOnly; SameSite=Strict` })
     );
   }
   return id;
 }
 
-export function getSession(req: DataFunctionArgs["request"]) {
-  const id = getSessionId(req);
+export function getSession() {
+  const id = getSessionId();
   const session = sql<{ data: any }>`
     select data from sessions
     where id = ${id}
@@ -62,9 +60,9 @@ export function getSession(req: DataFunctionArgs["request"]) {
   else return {};
 }
 
-export function setSession(req: DataFunctionArgs["request"], data: any) {
-  const id = getSessionId(req);
-  const session = getSession(req);
+export function setSession(data: any) {
+  const id = getSessionId();
+  const session = getSession();
   sql`
     insert into sessions (id, data)
     values (${id}, ${JSON.stringify({
@@ -75,8 +73,8 @@ export function setSession(req: DataFunctionArgs["request"], data: any) {
   `.exec();
 }
 
-export function endSession(req: DataFunctionArgs["request"]) {
-  const id = getSessionId(req);
+export function endSession() {
+  const id = getSessionId();
 
   sql`
     delete from sessions
@@ -84,7 +82,6 @@ export function endSession(req: DataFunctionArgs["request"]) {
   `.exec();
 
   setResponseHeaders(
-    req,
     new Headers({ "Set-Cookie": `session=; HttpOnly; SameSite=Strict` })
   );
 }

@@ -3,7 +3,7 @@ import { run } from "./util";
 
 const router = new Bun.FileSystemRouter({
   style: "nextjs",
-  dir: "./routes",
+  dir: "./app/routes",
   assetPrefix: "public",
 });
 
