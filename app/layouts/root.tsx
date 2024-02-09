@@ -34,6 +34,10 @@ export async function layout({ title }: { title: string }) {
               margin: 0;
               padding: 0;
             }
+            ::view-transition-old(root),
+            ::view-transition-new(root) {
+              animation-duration: 0.1s;
+            }
           `}
         </head>
         <body>{children}</body>

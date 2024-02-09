@@ -8,7 +8,7 @@ const router = new Bun.FileSystemRouter({
 });
 
 Bun.serve({
-  port: 4000,
+  port: 4050,
   development: true,
   async fetch(req) {
     const match = router.match(req);

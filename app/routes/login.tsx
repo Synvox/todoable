@@ -49,7 +49,7 @@ export default async function* () {
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 viewBox="0 0 24 24"
-                style="width:96px;height:96px;fill:#007bff"
+                style="width:128px;height:128px;fill:#007bff;margin-top:-80px;background:white;border-radius:50%;box-shadow:0px 1px 3px rgba(0,0,0,0.1);padding:16px;"
               >
                 <path d="M0.41,13.41L6,19L7.41,17.58L1.83,12M22.24,5.58L11.66,16.17L7.5,12L6.07,13.41L11.66,19L23.66,7M18,7L16.59,5.58L10.24,11.93L11.66,13.34L18,7Z" />
               </svg>

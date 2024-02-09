@@ -7,7 +7,7 @@ bun --hot index.ts
 ## Entry
 
 ```
-http://localhost:4000/index.ts
+http://localhost:4050/index.ts
 ```
 
 ## Summary

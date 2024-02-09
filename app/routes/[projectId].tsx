@@ -1,11 +1,11 @@
 import { getSession } from "~/app/session";
-import { bind, css, getContext, redirect, styled } from "~/util";
-import { layout } from "../layouts/index";
-import { sql } from "../sql";
-import { H1, Label } from "../components/Text";
+import { css, getContext, redirect, styled } from "~/util";
+import { Button } from "../components/Button";
 import { Input, InputLabel } from "../components/Input";
 import { Stack } from "../components/Stack";
-import { Button } from "../components/Button";
+import { H1, Label } from "../components/Text";
+import { layout } from "../layouts/index";
+import { sql } from "../sql";
 
 export default async function* () {
   const { request, match } = getContext();
@@ -84,12 +84,16 @@ export default async function* () {
             {Object.entries({
               Active: tasks.filter((x) => !x.completed),
               Completed: tasks.filter((x) => x.completed),
-            }).map(([label, tasks]) =>
-              tasks.length === 0 ? null : (
-                <Stack gap="xs">
-                  <Label>{label}</Label>
-                  <Box style="padding:0">
-                    {tasks.map((task) => (
+            }).map(([label, tasks]) => (
+              <Stack gap="xs">
+                <Label>{label}</Label>
+                <Box style="padding:0;min-height:60px;">
+                  {tasks.length === 0 ? (
+                    <div style="justify-content:center;align-items:center;display:flex;flex:1;font-weight:500;opacity:.5">
+                      No Tasks
+                    </div>
+                  ) : (
+                    tasks.map((task) => (
                       <TaskRow style={`view-transition-name: task-${task.id}`}>
                         <form method="POST" action={`/${projectId}`}>
                           <input type="hidden" name="taskId" value={task.id} />
@@ -138,11 +142,11 @@ export default async function* () {
                           />
                         </form>
                       </TaskRow>
-                    ))}
-                  </Box>
-                </Stack>
-              )
-            )}
+                    ))
+                  )}
+                </Box>
+              </Stack>
+            ))}
           </Stack>
         </div>
       </div>

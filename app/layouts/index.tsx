@@ -1,8 +1,8 @@
 import { css, getContext, styled } from "~/util";
-import { sql } from "../sql";
-import { layout as rootLayout } from "./root";
 import { Stack } from "../components/Stack";
 import { H1 } from "../components/Text";
+import { sql } from "../sql";
+import { layout as rootLayout } from "./root";
 
 export async function layout({ title }: { title: string }) {
   const match = getContext().match;
@@ -46,8 +46,12 @@ export async function layout({ title }: { title: string }) {
                       href={`/${project.id}`}
                       variant={active ? "active" : undefined}
                     >
-                      <span>{project.name}</span>
-                      <small>{project.tasksCount} Tasks</small>
+                      <span style="position:relative;z-index:1">
+                        {project.name}
+                      </span>
+                      <small style="position:relative;z-index:1">
+                        {project.tasksCount} Tasks
+                      </small>
                     </Link>
                   );
                 })}
@@ -88,6 +92,7 @@ const Panel = styled.article(css`
 const Link = styled.a(
   css`
     display: flex;
+    position: relative;
     flex-direction: column;
     padding: 8px;
     text-decoration: none;
@@ -100,6 +105,7 @@ const Link = styled.a(
     &.active {
       background: #007bff;
       color: white;
+      view-transition-name: nav-link-blue;
     }
   `,
   {
