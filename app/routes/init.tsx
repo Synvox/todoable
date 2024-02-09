@@ -45,6 +45,7 @@ export default async function* () {
   sql`
     create table if not exists tasks (
       id integer primary key,
+      updated_at timestamp not null default current_timestamp,
       project_id integer not null references projects(id),
       name text not null,
       completed boolean not null default false

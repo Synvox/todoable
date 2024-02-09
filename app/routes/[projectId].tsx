@@ -43,7 +43,8 @@ export default async function* () {
           name = coalesce(${name}, name),
           completed = coalesce(${
             completed === null ? null : completed === "true"
-          }, completed)
+          }, completed),
+          updated_at = current_timestamp
         where id = ${taskId}
       `.exec();
     } else if (name)
@@ -58,6 +59,7 @@ export default async function* () {
     select id, name, completed
     from tasks
     where project_id = ${projectId}
+    order by completed, updated_at desc
   `.all();
 
   yield (
@@ -88,7 +90,7 @@ export default async function* () {
                   <Label>{label}</Label>
                   <Box style="padding:0">
                     {tasks.map((task) => (
-                      <TaskRow>
+                      <TaskRow style={`view-transition-name: task-${task.id}`}>
                         <form method="POST" action={`/${projectId}`}>
                           <input type="hidden" name="taskId" value={task.id} />
 

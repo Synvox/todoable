@@ -6,6 +6,7 @@ export async function layout({ title }: { title: string }) {
       <html>
         <head>
           <title>{title}</title>
+          <meta name="view-transition" content="same-origin" />
           {css`
             html {
               height: 100%;
