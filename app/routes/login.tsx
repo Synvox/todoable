@@ -9,15 +9,11 @@ import { Stack } from "../components/Stack";
 import { Alert } from "../components/Alert";
 import { H1, HGroup } from "../components/Text";
 
-export default async function* () {
-  const { request } = getContext();
-  const search: URLSearchParams = new URL(request.url).searchParams;
-  const Layout = await layout({ title: "Login" });
+export const serverActions = {
+  async *login() {
+    const { request } = getContext();
+    if (request.method !== "POST") throw redirect("/login");
 
-  if (getSession().userId) throw redirect("/");
-
-  let error = "";
-  if (request.method === "POST") {
     const body = await request.formData();
 
     const username = String(body.get("username"));
@@ -35,15 +31,27 @@ export default async function* () {
     if (user && (await Password.verify(password, user.password))) {
       setSession({ userId: user.id });
       throw redirect("/");
+    } else {
+      throw redirect("/login?error=Invalid username or password");
     }
+  },
+};
 
-    error = "Invalid username or password";
-  }
+export default async function* () {
+  const { request } = getContext();
+  const search: URLSearchParams = new URL(request.url).searchParams;
+  const Layout = await layout({ title: "Login" });
+
+  if (getSession().userId) throw redirect("/");
 
   yield (
     <Layout>
       <Container>
-        <Form method="POST" action="/login" style="view-transition-name: nav;">
+        <Form
+          method="POST"
+          action={serverActions.login}
+          style="view-transition-name: nav;"
+        >
           <Stack gap="lg">
             <Stack gap="xs" style="align-items:center;text-align:center">
               <svg
@@ -59,7 +67,9 @@ export default async function* () {
               </HGroup>
             </Stack>
             {search.has("notice") && <Alert>{search.get("notice")}</Alert>}
-            {Boolean(error) && <Alert type="error">{error}</Alert>}
+            {search.has("error") && (
+              <Alert type="error">{search.get("error")}</Alert>
+            )}
             <Stack>
               <InputLabel>
                 Username

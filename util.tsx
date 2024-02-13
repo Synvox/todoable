@@ -1,13 +1,13 @@
-import { randomBytes } from "crypto";
-import Bun from "bun";
-import { relative, join } from "path";
 import { AsyncLocalStorage } from "async_hooks";
+import Bun from "bun";
+import { randomBytes } from "crypto";
 import { getSessionResponseHeaders } from "./app/session";
 
 export const asyncLocalStorage = new AsyncLocalStorage<{
   match: Bun.MatchedRoute;
   request: Request;
   params: Record<string, string>;
+  functions: Map<<T>() => Promise<T>, string>;
 }>();
 
 export function getContext() {
@@ -41,28 +41,35 @@ export type DataFunctionArgs = {
   params: Record<string, string>;
 };
 
-export async function run(
-  match: Bun.MatchedRoute,
-  request: Request,
-  params: Record<string, string>,
-  fn: (ctx: DataFunctionArgs) => AsyncGenerator<any, any, any>
-) {
-  return asyncLocalStorage.run({ match, request, params }, () => {
+export async function run({
+  match,
+  request,
+  params,
+  fn,
+  functions,
+}: {
+  match: Bun.MatchedRoute;
+  request: Request;
+  params: Record<string, string>;
+  fn: () => AsyncGenerator<any, any, any>;
+  functions: Map<<T>() => Promise<T>, string>;
+}) {
+  return asyncLocalStorage.run({ match, request, params, functions }, () => {
     const { promise, resolve, reject } = Promise.withResolvers();
 
+    let statusCode = 200;
+    let headers = new Headers();
+    let resolved = false;
+    let hasBody = false;
     let enqueue = (_chunk: any) => {};
     let close = () => {};
+
     const stream = new ReadableStream({
       start(controller: ReadableStreamController<unknown>) {
         enqueue = controller.enqueue.bind(controller);
         close = controller.close.bind(controller);
       },
     });
-
-    let statusCode = 200;
-    let headers = new Headers();
-    let resolved = false;
-    let hasBody = false;
 
     function mergeHeaders(headers: Headers) {
       const responseHeaders = getSessionResponseHeaders();
@@ -100,7 +107,7 @@ export async function run(
         }
 
         if (result instanceof JSXNode) {
-          for await (const chunk of result.toAsyncGenerator()) {
+          for await (const chunk of result.toAsyncGenerator(functions)) {
             enqueue(chunk);
           }
         } else {
@@ -109,7 +116,7 @@ export async function run(
       }
     }
 
-    const gen = fn({ request, params });
+    const gen = fn();
 
     gen
       .next()
@@ -270,13 +277,16 @@ export class JSXNode<
     this.props = props;
   }
 
-  async *toAsyncGenerator(): AsyncGenerator<string> {
+  async *toAsyncGenerator(
+    functions: Map<<T>() => Promise<T>, string>
+  ): AsyncGenerator<string> {
     if (typeof this.type === "function") {
       const gen = this.type(this.props);
-      if (gen instanceof JSXNode) yield* gen.toAsyncGenerator();
+      if (gen instanceof JSXNode) yield* gen.toAsyncGenerator(functions);
       else if (gen[Symbol.asyncIterator]) {
         for await (const chunk of gen) {
-          if (chunk instanceof JSXNode) yield* chunk.toAsyncGenerator();
+          if (chunk instanceof JSXNode)
+            yield* chunk.toAsyncGenerator(functions);
           else yield typeof chunk === "number" ? chunk.toLocaleString() : chunk;
         }
       } else {
@@ -287,12 +297,19 @@ export class JSXNode<
 
     let { children, ...props } = this.props as any;
 
+    const abort = (msg: string) => {
+      throw new Error(msg);
+    };
+
     let opening = `<${this.type}`;
+
     for (const key in props) {
       if (props[key] === undefined) continue;
       opening += ` ${key}="${
         typeof props[key] === "function"
-          ? `(${props[key].toString().replaceAll('"', "&quot;")})(event)`
+          ? functions.has(props[key])
+            ? functions.get(props[key])!
+            : abort("Function not found in serverActions or clientActions")
           : props[key].toString()
       }"`;
     }
@@ -302,7 +319,7 @@ export class JSXNode<
     if (!Array.isArray(children)) children = [children];
     for (const child of children.flat()) {
       if (!child && child !== 0) continue;
-      if (child instanceof JSXNode) yield* child.toAsyncGenerator();
+      if (child instanceof JSXNode) yield* child.toAsyncGenerator(functions);
       else yield typeof child === "number" ? child.toLocaleString() : child;
     }
 

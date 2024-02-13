@@ -1,64 +1,96 @@
-import { getSession } from "~/app/session";
 import { css, getContext, redirect, styled } from "~/util";
 import { Button } from "../components/Button";
 import { Input, InputLabel } from "../components/Input";
 import { Stack } from "../components/Stack";
 import { H1, Label } from "../components/Text";
+import { getUser } from "../getters/user";
 import { layout } from "../layouts/index";
 import { sql } from "../sql";
 
-export default async function* () {
-  const { request, match } = getContext();
+function getProject() {
+  const { match } = getContext();
   const { projectId } = match.params;
-  const Layout = await layout({ title: "Login" });
-  const userId = getSession().userId;
-  if (!userId) throw redirect("/login");
-
-  const user = sql<{ id: number; username: string }>`
-    select id, username
-    from users
-    where id = ${userId}
-  `.first();
-
-  if (!user) throw redirect("/login");
+  const user = getUser();
 
   const project = sql<{ id: number; name: string }>`
     select id, name
     from projects
-    where user_id = ${userId}
+    where user_id = ${user.id}
     and id = ${projectId}
   `.first();
 
   if (!project) throw redirect("/");
 
-  if (request.method === "POST") {
+  return project;
+}
+
+export const serverActions = {
+  async *updateTask() {
+    const { request } = getContext();
+    const project = getProject();
     const body = await request.formData();
     const name = String(body.get("name") || "") || null;
     const taskId = String(body.get("taskId") || "");
     const completed = String(body.get("completed") || "") || null;
-    if (taskId) {
-      sql`
-        update tasks
-        set
-          name = coalesce(${name}, name),
-          completed = coalesce(${
-            completed === null ? null : completed === "true"
-          }, completed),
-          updated_at = current_timestamp
-        where id = ${taskId}
-      `.exec();
-    } else if (name)
+    sql`
+      update tasks
+      set
+        name = coalesce(${name}, name),
+        completed = coalesce(${
+          completed === null ? null : completed === "true"
+        }, completed),
+        updated_at = current_timestamp
+      where id = ${taskId}
+      and project_id = ${project.id}
+    `.exec();
+    throw redirect(`/${project.id}`);
+  },
+  async *deleteTask() {
+    const { request } = getContext();
+    const project = getProject();
+    const body = await request.formData();
+    const taskId = String(body.get("taskId") || "");
+
+    sql`
+      delete from tasks
+      where id = ${taskId}
+      and project_id = ${project.id}
+    `.exec();
+
+    throw redirect(`/${project.id}`);
+  },
+  async *createTask() {
+    const project = getProject();
+    const { request } = getContext();
+    const body = await request.formData();
+    const name = String(body.get("name") || "") || null;
+    if (name)
       sql`
         insert into tasks (project_id, name)
-        values (${projectId}, ${name})
+        values (${project.id}, ${name})
       `.exec();
-    throw redirect(`/${projectId}`);
-  }
+    throw redirect(`/${project.id}`);
+  },
+};
+
+export const clientActions = {
+  autoSave: (e: InputEvent) => {
+    const form = (e.target as HTMLInputElement).form!;
+    fetch(form.action, {
+      method: "POST",
+      body: new FormData(form),
+    });
+  },
+};
+
+export default async function* () {
+  const Layout = await layout({ title: "Login" });
+  const project = getProject();
 
   const tasks = sql<{ id: number; name: string; completed: boolean }>`
     select id, name, completed
     from tasks
-    where project_id = ${projectId}
+    where project_id = ${project.id}
     order by completed, updated_at desc
   `.all();
 
@@ -72,7 +104,7 @@ export default async function* () {
               <form
                 style="display:flex;gap:8px;align-items:flex-end"
                 method="POST"
-                action={`/${projectId}`}
+                action={serverActions.createTask}
               >
                 <InputLabel>
                   New Task
@@ -95,7 +127,7 @@ export default async function* () {
                   ) : (
                     tasks.map((task) => (
                       <TaskRow style={`view-transition-name: task-${task.id}`}>
-                        <form method="POST" action={`/${projectId}`}>
+                        <form method="POST" action={serverActions.updateTask}>
                           <input type="hidden" name="taskId" value={task.id} />
 
                           <button
@@ -124,7 +156,11 @@ export default async function* () {
                             )}
                           </button>
                         </form>
-                        <form method="POST" action={`/${projectId}`}>
+                        <form
+                          method="POST"
+                          action={serverActions.updateTask}
+                          style="flex:1"
+                        >
                           <input type="hidden" name="taskId" value={task.id} />
 
                           <input
@@ -132,14 +168,20 @@ export default async function* () {
                             name="name"
                             value={task.name}
                             className="task-input"
-                            onChange={(e: InputEvent) => {
-                              const form = (e.target as HTMLInputElement).form!;
-                              fetch(form.action, {
-                                method: "POST",
-                                body: new FormData(form),
-                              });
-                            }}
+                            onChange={clientActions.autoSave}
                           />
+                        </form>
+                        <form method="POST" action={serverActions.deleteTask}>
+                          <input type="hidden" name="taskId" value={task.id} />
+                          <button>
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              viewBox="0 0 24 24"
+                            >
+                              <title>delete-outline</title>
+                              <path d="M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19M8,9H16V19H8V9M15.5,4L14.5,3H9.5L8.5,4H5V6H19V4H15.5Z" />
+                            </svg>
+                          </button>
                         </form>
                       </TaskRow>
                     ))
@@ -170,9 +212,6 @@ const TaskRow = styled.div(css`
   height: 60px;
   & > form {
     height: 100%;
-    &:last-child {
-      flex: 1;
-    }
     & > input[type="text"] {
       height: 100%;
       padding: 10px 20px;
