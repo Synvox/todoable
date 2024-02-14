@@ -38,8 +38,7 @@ export const serverActions = {
         name = coalesce(${name}, name),
         completed = coalesce(${
           completed === null ? null : completed === "true"
-        }, completed),
-        updated_at = current_timestamp
+        }, completed)
       where id = ${taskId}
       and project_id = ${project.id}
     `.exec();
@@ -130,7 +129,7 @@ export default async function* () {
                         <form method="POST" action={serverActions.updateTask}>
                           <input type="hidden" name="taskId" value={task.id} />
 
-                          <button
+                          <IconButton
                             type="submit"
                             name="completed"
                             value={task.completed ? "false" : "true"}
@@ -140,6 +139,7 @@ export default async function* () {
                                 xmlns="http://www.w3.org/2000/svg"
                                 viewBox="0 0 24 24"
                                 fill="currentColor"
+                                style="width:32px;height:32px"
                               >
                                 <title>check</title>
                                 <path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z" />
@@ -149,39 +149,43 @@ export default async function* () {
                                 xmlns="http://www.w3.org/2000/svg"
                                 viewBox="0 0 24 24"
                                 fill="currentColor"
+                                style="width:32px;height:32px"
                               >
                                 <title>check-decagram</title>
                                 <path d="M23,12L20.56,9.22L20.9,5.54L17.29,4.72L15.4,1.54L12,3L8.6,1.54L6.71,4.72L3.1,5.53L3.44,9.21L1,12L3.44,14.78L3.1,18.47L6.71,19.29L8.6,22.47L12,21L15.4,22.46L17.29,19.28L20.9,18.46L20.56,14.78L23,12M10,17L6,13L7.41,11.59L10,14.17L16.59,7.58L18,9L10,17Z" />
                               </svg>
                             )}
-                          </button>
+                          </IconButton>
                         </form>
                         <form
                           method="POST"
                           action={serverActions.updateTask}
-                          style="flex:1"
+                          style="flex:1;display:flex;align-items:center;gap:8px;overflow:hidden"
                         >
                           <input type="hidden" name="taskId" value={task.id} />
-
-                          <input
+                          <Input
                             type="text"
                             name="name"
                             value={task.name}
-                            className="task-input"
-                            onChange={clientActions.autoSave}
+                            pattern={whereNotRegex(task.name)}
+                            border="transparent"
                           />
+                          <WhenValid>
+                            <Button variant="secondary">Save</Button>
+                          </WhenValid>
                         </form>
                         <form method="POST" action={serverActions.deleteTask}>
                           <input type="hidden" name="taskId" value={task.id} />
-                          <button>
+                          <IconButton>
                             <svg
                               xmlns="http://www.w3.org/2000/svg"
                               viewBox="0 0 24 24"
+                              style="width:24px;height:24px;opacity:.5"
                             >
                               <title>delete-outline</title>
                               <path d="M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19M8,9H16V19H8V9M15.5,4L14.5,3H9.5L8.5,4H5V6H19V4H15.5Z" />
                             </svg>
-                          </button>
+                          </IconButton>
                         </form>
                       </TaskRow>
                     ))
@@ -194,6 +198,11 @@ export default async function* () {
       </div>
     </Layout>
   );
+}
+
+function whereNotRegex(str: string) {
+  str = str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return `^(?!${str}$).*`;
 }
 
 const Box = styled.div(css`
@@ -209,45 +218,42 @@ const Box = styled.div(css`
 const TaskRow = styled.div(css`
   display: flex;
   align-items: center;
+  justify-content: stretch;
   height: 60px;
-  & > form {
-    height: 100%;
-    & > input[type="text"] {
-      height: 100%;
-      padding: 10px 20px;
-      background: transparent;
-      border: none;
-      font-size: 16px;
-      width: 100%;
-    }
-    & > button {
-      border-radius: 5px;
-      padding: 10px 20px;
-      background: transparent;
-      color: #444;
-      border: none;
-      cursor: pointer;
-      transition: background 0.2s;
-      width: 80px;
-      height: 100%;
-      font-size: 14px;
-      font-weight: bold;
-      &[value="false"] {
-        color: #007bff;
-      }
-      &:hover {
-        background: #f9f9f9;
-      }
-      &:active {
-        opacity: 0.8;
-      }
-      & > svg {
-        width: 32px;
-        height: 32px;
-      }
-    }
-  }
+  padding: 10px;
+  gap: 10px;
   & + & {
     border-top: 1px solid #eee;
+  }
+`);
+
+const IconButton = styled.button(css`
+  border-radius: 5000px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  background: transparent;
+  color: #444;
+  border: none;
+  cursor: pointer;
+  transition: background 0.2s;
+  font-size: 14px;
+  font-weight: bold;
+  &[value="false"] {
+    color: #007bff;
+  }
+  &:hover {
+    background: #ccc;
+  }
+  &:active {
+    opacity: 0.8;
+  }
+`);
+
+const WhenValid = styled.div(css`
+  display: none;
+  form:valid & {
+    display: block;
   }
 `);

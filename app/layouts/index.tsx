@@ -105,7 +105,6 @@ const Link = styled.a(
     &.active {
       background: #007bff;
       color: white;
-      view-transition-name: nav-link-blue;
     }
   `,
   {

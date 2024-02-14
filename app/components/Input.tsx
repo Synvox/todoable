@@ -4,17 +4,36 @@ export const Input = styled.input(
   css`
     padding: 10px 20px;
     border-radius: 5px;
-    background: #f8f8f8;
     color: black;
     width: 100%;
     transition: background 0.2s;
     font-size: 16px;
-    border: 1px solid #f0f0f0;
+
     &:focus {
       background: white;
     }
+    &.variant-border {
+      background: #f8f8f8;
+      border: 1px solid #f0f0f0;
+    }
+    &.variant-transparent {
+      background: transparent;
+      border: 1px solid transparent;
+      &:focus {
+        background: #f8f8f8;
+        border: 1px solid #f0f0f0;
+      }
+    }
   `,
-  {}
+  {
+    border: {
+      border: "variant-border",
+      transparent: "variant-transparent",
+    },
+  },
+  {
+    border: "border",
+  }
 );
 
 export const InputLabel = styled.label(css`
