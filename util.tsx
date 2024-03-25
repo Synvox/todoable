@@ -1,13 +1,12 @@
 import { AsyncLocalStorage } from "async_hooks";
 import Bun from "bun";
-import { randomBytes } from "crypto";
+import { randomBytes, createHash } from "crypto";
 import { getSessionResponseHeaders } from "./app/session";
 
 export const asyncLocalStorage = new AsyncLocalStorage<{
   match: Bun.MatchedRoute;
   request: Request;
   params: Record<string, string>;
-  functions: Map<<T>() => Promise<T>, string>;
 }>();
 
 export function getContext() {
@@ -46,15 +45,13 @@ export async function run({
   request,
   params,
   fn,
-  functions,
 }: {
   match: Bun.MatchedRoute;
   request: Request;
   params: Record<string, string>;
   fn: () => AsyncGenerator<any, any, any>;
-  functions: Map<<T>() => Promise<T>, string>;
 }) {
-  return asyncLocalStorage.run({ match, request, params, functions }, () => {
+  return asyncLocalStorage.run({ match, request, params }, () => {
     const { promise, resolve, reject } = Promise.withResolvers();
 
     let statusCode = 200;
@@ -107,7 +104,7 @@ export async function run({
         }
 
         if (result instanceof JSXNode) {
-          for await (const chunk of result.toAsyncGenerator(functions)) {
+          for await (const chunk of result.toAsyncGenerator()) {
             enqueue(chunk);
           }
         } else {
@@ -122,7 +119,16 @@ export async function run({
       .next()
       .then(async (result) => {
         await handleResultValue(result.value);
-        for await (let result of gen) await handleResultValue(result);
+        for await (let result of gen) {
+          await handleResultValue(result);
+        }
+
+        const deferredGenerators =
+          deferredGeneratorsWeakMap.get(getContext()) || [];
+
+        for await (let result of combineGenerators([...deferredGenerators])) {
+          await handleResultValue(result);
+        }
       })
       .catch(async (value) => {
         if (value instanceof Response) {
@@ -151,7 +157,14 @@ export function js<T extends unknown[]>(
   fn: (...args: T) => void,
   ...args: T
 ): string {
-  return `<script>(${fn.toString()})(...${JSON.stringify(args)})</script>`;
+  return `(${fn.toString()})(...${JSON.stringify(args)})`;
+}
+
+export function script<T extends unknown[]>(
+  fn: (...args: T) => void,
+  ...args: T
+): string {
+  return `<script>${js(fn, ...args)}</script>`;
 }
 
 export function bind<E extends Event, T extends unknown[]>(
@@ -160,11 +173,12 @@ export function bind<E extends Event, T extends unknown[]>(
   fn: (event: E, ...args: T) => void,
   ...args: any[]
 ) {
-  return `<script>document.body.addEventListener(${JSON.stringify(
-    event
-  )},(event) => event.target.matches(${JSON.stringify(
-    selector
-  )}) && (${fn.toString()})(event, ...${JSON.stringify(args)}))</script>`;
+  const safeEvent = JSON.stringify(event);
+  const safeSelector = JSON.stringify(selector);
+  const safeArgs = JSON.stringify(args);
+  const safeFn = fn.toString();
+
+  return `<script>document.body.addEventListener(${safeEvent},(event) => event.target.matches(${safeSelector}) && (${safeFn})(event, ...${safeArgs}))</script>`;
 }
 
 const onceWeakMap = new WeakMap<Request, Set<string>>();
@@ -195,7 +209,8 @@ function styledInternal(
 ) {
   const removeTags = (x: string) =>
     x.replace(/^<style>/, "").replace(/<\/style>$/, "");
-  const cn = "x" + randomBytes(4).toString("hex");
+  const cn =
+    "x" + createHash("sha256").update(styles).digest("hex").slice(0, 8);
   let cleanedStyles = `.${cn}{${removeTags(styles)}}`;
 
   return async function* ({ children, class: className, ...props }: any) {
@@ -240,8 +255,11 @@ export const styled = new Proxy(styledInternal, {
 };
 
 export async function* combine(...functions: (() => AsyncGenerator<any>)[]) {
-  let generators = functions.map((fn) => {
-    const gen = fn();
+  return yield* combineGenerators(functions.map((fn) => fn()));
+}
+
+export async function* combineGenerators(gens: AsyncGenerator<any>[]) {
+  let generators = gens.map((gen) => {
     return [gen, gen.next()] as const;
   });
 
@@ -252,12 +270,11 @@ export async function* combine(...functions: (() => AsyncGenerator<any>)[]) {
 
     const [gen, completed] = await Promise.race(promises);
 
-    // replace the completed promise with the next one
-    generators = generators.map(([g, p]) => [g, g === gen ? g.next() : p]);
-
     if (completed.done) {
       generators = generators.filter(([g]) => g !== gen);
     } else {
+      // replace the completed promise with the next one
+      generators = generators.map(([g, p]) => [g, g === gen ? g.next() : p]);
       yield completed.value;
     }
   }
@@ -277,17 +294,31 @@ export class JSXNode<
     this.props = props;
   }
 
-  async *toAsyncGenerator(
-    functions: Map<<T>() => Promise<T>, string>
-  ): AsyncGenerator<string> {
+  async *toAsyncGenerator(): AsyncGenerator<string> {
     if (typeof this.type === "function") {
       const gen = this.type(this.props);
-      if (gen instanceof JSXNode) yield* gen.toAsyncGenerator(functions);
+      if (gen instanceof JSXNode) yield* gen.toAsyncGenerator();
       else if (gen[Symbol.asyncIterator]) {
-        for await (const chunk of gen) {
-          if (chunk instanceof JSXNode)
-            yield* chunk.toAsyncGenerator(functions);
-          else yield typeof chunk === "number" ? chunk.toLocaleString() : chunk;
+        while (true) {
+          // Can't use for await here because exiting the loop
+          // calls return on the generator.
+
+          let next = await gen.next();
+
+          if (next.value) {
+            if (next.value === flushObj) {
+              deferGenerator(gen);
+              break;
+            } else if (next.value instanceof JSXNode) {
+              yield* next.value.toAsyncGenerator();
+            } else {
+              yield typeof next.value === "number"
+                ? next.value.toLocaleString()
+                : next.value;
+            }
+          }
+
+          if (next.done) break;
         }
       } else {
         throw new Error("Invalid JSX function");
@@ -301,28 +332,129 @@ export class JSXNode<
       throw new Error(msg);
     };
 
-    let opening = `<${this.type}`;
+    if (this.type !== "fragment") {
+      let opening = `<${this.type}`;
 
-    for (const key in props) {
-      if (props[key] === undefined) continue;
-      opening += ` ${key}="${
-        typeof props[key] === "function"
-          ? functions.has(props[key])
-            ? functions.get(props[key])!
-            : abort("Function not found in serverActions or clientActions")
-          : props[key].toString()
-      }"`;
+      for (const key in props) {
+        if (props[key] === undefined) continue;
+        opening += ` ${key}="${
+          typeof props[key] === "function"
+            ? abort("Define a server or client action instead of a function")
+            : props[key].toString()
+        }"`;
+      }
+      opening += ">";
+      yield opening;
     }
-    opening += ">";
-    yield opening;
 
     if (!Array.isArray(children)) children = [children];
     for (const child of children.flat()) {
       if (!child && child !== 0) continue;
-      if (child instanceof JSXNode) yield* child.toAsyncGenerator(functions);
+      if (child instanceof JSXNode) yield* child.toAsyncGenerator();
       else yield typeof child === "number" ? child.toLocaleString() : child;
     }
 
-    yield `</${this.type}>`;
+    if (this.type !== "fragment") yield `</${this.type}>`;
   }
+}
+
+export const actionParam = "_action";
+
+const serverActionsWeakMap = new WeakMap<
+  Record<any, string>,
+  Record<string, () => AsyncGenerator<any, any, any>>
+>();
+
+export function createServerActions<
+  Server extends Record<string, () => AsyncGenerator<any, any, any>>,
+>(server: Server) {
+  type Return = Record<keyof Server, string>;
+  const obj: Partial<Return> = {};
+
+  for (const key of Object.keys(server)) {
+    Object.defineProperty(obj, key, {
+      get: () => {
+        const { request } = getContext();
+        const url = new URL(request.url);
+        const search = new URLSearchParams(url.search);
+        search.set(actionParam, key);
+        const newUrl = new URL(url.toString());
+        newUrl.search = search.toString();
+        return newUrl.toString();
+      },
+    });
+  }
+
+  serverActionsWeakMap.set(obj as Record<string, string>, server);
+
+  return obj as Return;
+}
+
+export function getServerActions(obj: Record<string, string>) {
+  if (!serverActionsWeakMap.has(obj))
+    throw new Error("Server actions not found");
+
+  return serverActionsWeakMap.get(obj)!;
+}
+
+const flushObj = {};
+export function defer() {
+  return flushObj;
+}
+
+const deferredGeneratorsWeakMap = new WeakMap<
+  ReturnType<typeof getContext>,
+  Set<AsyncGenerator<any, any, any>>
+>();
+
+function deferGenerator(gen: AsyncGenerator<any, any, any>) {
+  const context = getContext();
+  if (!deferredGeneratorsWeakMap.has(context))
+    deferredGeneratorsWeakMap.set(context, new Set());
+  const deferredGenerators = deferredGeneratorsWeakMap.get(context)!;
+  deferredGenerators.add(gen);
+}
+
+export function* swap(selector: string, node: JSXNode<any, any>) {
+  const name = "__swap__";
+
+  yield once(
+    script((name) => {
+      document.currentScript?.remove();
+      //@ts-expect-error
+      window[name] = async function swap(selector: string) {
+        let el = document.querySelector(selector);
+        if (!el) throw new Error("Element not found: " + selector);
+        const template = document.currentScript
+          ?.previousElementSibling as HTMLTemplateElement;
+        template?.parentElement?.removeChild(template);
+        el!.replaceWith(template.content.firstElementChild!);
+      };
+    }, name)
+  );
+  yield <template>{node}</template>;
+  yield script(
+    (name, selector) =>
+      (
+        //@ts-expect-error
+        window[name](selector), document.currentScript?.remove()
+      ),
+    name,
+    selector
+  );
+}
+
+export function createBookmark() {
+  const id = "x" + randomBytes(4).toString("hex");
+  let firstWrite = true;
+
+  return async function* write(node: JSXNode<any, any>) {
+    if (firstWrite) {
+      firstWrite = false;
+      yield <script type="text/placeholder" id={id} />;
+      yield node;
+    } else {
+      yield* swap(`#${id} + *`, node);
+    }
+  };
 }

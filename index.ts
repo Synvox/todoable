@@ -1,5 +1,5 @@
 import Bun from "bun";
-import { run } from "./util";
+import { actionParam, getServerActions, run } from "./util";
 
 const router = new Bun.FileSystemRouter({
   style: "nextjs",
@@ -29,34 +29,13 @@ Bun.serve({
           },
         });
       }
-      const {
-        default: fn,
-        serverActions = {},
-        clientActions = {},
-      } = await import(match.filePath);
+      const { default: fn, serverActions = {} } = await import(match.filePath);
       if (fn === undefined) return new Response("Not Found", { status: 404 });
 
-      const functions = new Map();
-      const functionParam = "_action";
-
-      for (const [key, value] of Object.entries(serverActions)) {
-        const search = new URLSearchParams(url.search);
-        search.set(functionParam, key);
-        const newUrl = new URL(url.toString());
-        newUrl.search = search.toString();
-        functions.set(value, newUrl.toString());
-      }
-
-      for (const value of Object.values(clientActions)) {
-        functions.set(
-          value,
-          `(${(value as Function).toString().replaceAll('"', "&quot;")})(event)`
-        );
-      }
-
-      if (url.searchParams.has(functionParam)) {
-        const action = url.searchParams.get(functionParam);
-        const serverAction = serverActions[action];
+      if (url.searchParams.has(actionParam)) {
+        const actions = getServerActions(serverActions);
+        const action = url.searchParams.get(actionParam);
+        const serverAction = actions[action];
         if (serverAction === undefined) {
           return new Response("Not Found", { status: 404 });
         }
@@ -65,7 +44,6 @@ Bun.serve({
           request,
           params: match.params,
           fn: serverAction,
-          functions,
         });
       }
 
@@ -74,7 +52,6 @@ Bun.serve({
         request,
         params: match.params,
         fn,
-        functions,
       });
     }
   },

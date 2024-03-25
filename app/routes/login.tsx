@@ -1,15 +1,23 @@
 import { password as Password } from "bun";
 import { getSession, setSession } from "~/app/session";
-import { css, getContext, redirect, styled } from "~/util";
-import { layout } from "../layouts/root";
-import { sql } from "../sql";
+import {
+  createBookmark,
+  createServerActions,
+  css,
+  defer,
+  getContext,
+  redirect,
+  styled,
+} from "~/util";
+import { Alert } from "../components/Alert";
 import { Button } from "../components/Button";
 import { Input, InputLabel } from "../components/Input";
 import { Stack } from "../components/Stack";
-import { Alert } from "../components/Alert";
 import { H1, HGroup } from "../components/Text";
+import { layout } from "../layouts/root";
+import { sql } from "../sql";
 
-export const serverActions = {
+export const serverActions = createServerActions({
   async *login() {
     const { request } = getContext();
     if (request.method !== "POST") throw redirect("/login");
@@ -35,7 +43,7 @@ export const serverActions = {
       throw redirect("/login?error=Invalid username or password");
     }
   },
-};
+});
 
 export default async function* () {
   const { request } = getContext();
@@ -82,10 +90,24 @@ export default async function* () {
               <Button type="submit">Submit</Button>
             </Stack>
           </Stack>
+          <Test />
         </Form>
       </Container>
     </Layout>
   );
+}
+
+async function* Test() {
+  const write = createBookmark();
+
+  yield* write(<div>Hello</div>);
+  yield defer();
+
+  await new Promise((r) => setTimeout(r, 1000));
+  yield* write(<div>Hello World</div>);
+
+  await new Promise((r) => setTimeout(r, 1000));
+  yield* write(<div>Hello World!!!</div>);
 }
 
 const Container = styled.div(css`

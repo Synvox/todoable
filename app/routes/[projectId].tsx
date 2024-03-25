@@ -1,4 +1,12 @@
-import { css, getContext, redirect, styled } from "~/util";
+import {
+  bind,
+  createServerActions,
+  css,
+  getContext,
+  once,
+  redirect,
+  styled,
+} from "~/util";
 import { Button } from "../components/Button";
 import { Input, InputLabel } from "../components/Input";
 import { Stack } from "../components/Stack";
@@ -24,7 +32,7 @@ function getProject() {
   return project;
 }
 
-export const serverActions = {
+export const serverActions = createServerActions({
   async *updateTask() {
     const { request } = getContext();
     const project = getProject();
@@ -70,17 +78,7 @@ export const serverActions = {
       `.exec();
     throw redirect(`/${project.id}`);
   },
-};
-
-export const clientActions = {
-  autoSave: (e: InputEvent) => {
-    const form = (e.target as HTMLInputElement).form!;
-    fetch(form.action, {
-      method: "POST",
-      body: new FormData(form),
-    });
-  },
-};
+});
 
 export default async function* () {
   const Layout = await layout({ title: "Login" });
@@ -169,6 +167,13 @@ export default async function* () {
                             value={task.name}
                             pattern={whereNotRegex(task.name)}
                             border="transparent"
+                            // onChange={((e: Event) => {
+                            //   const form = (e.target as HTMLInputElement).form!;
+                            //   fetch(form.action, {
+                            //     method: "POST",
+                            //     body: new FormData(form),
+                            //   });
+                            // }).toString()}
                           />
                           <WhenValid>
                             <Button variant="secondary">Save</Button>
@@ -197,6 +202,16 @@ export default async function* () {
         </div>
       </div>
     </Layout>
+  );
+
+  yield once(
+    bind('input[name="taskId"] + input[name="name"]', "change", (e: Event) => {
+      const form = (e.target as HTMLInputElement).form!;
+      fetch(form.action, {
+        method: "POST",
+        body: new FormData(form),
+      });
+    })
   );
 }
 
